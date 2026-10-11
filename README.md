@@ -61,3 +61,13 @@ The server prints a warning once the schedule has expired.
 | `lib/osm.js` | OpenStreetMap download and cache |
 | `tools/build_static.py` | Turns GTFS into `data/static.json` and `data/index.json` |
 | `public/` | The 3D page (Three.js r160 is bundled in `public/vendor`) |
+
+## License
+
+The code is under the [MIT License](LICENSE). That covers the code only, not the data or bundled libraries:
+
+| Part | License |
+|---|---|
+| `public/vendor/` (Three.js r160 and its addons) | MIT, © Three.js Authors |
+| `data/osm.json` | © OpenStreetMap contributors, [ODbL](https://opendatacommons.org/licenses/odbl/) |
+| `data/google_transit.zip`, `data/snapshot/` and the files built from them | City of Saskatoon / Saskatoon Transit, under the City of Saskatoon Open Data Terms of Use |
