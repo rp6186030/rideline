@@ -147,6 +147,10 @@ def main():
             "hub": s.get("location_type", "").strip() == "1",
             "routes": sorted(stop_routes.get(sid, ())),
         })
+        # GTFS wheelchair_boarding: 1 = accessible, 2 = not accessible, 0/blank = no information (so leave it out)
+        wc = (s.get("wheelchair_boarding") or "").strip()
+        if wc in ("1", "2"):
+            stop_out[-1]["wc"] = int(wc)
 
     static = {
         "generated_from": os.path.basename(ZIP),

@@ -152,7 +152,6 @@ const M = {
   trunk: new THREE.MeshStandardMaterial({ color: '#8A6A4A', roughness: 1 }),
   pier: new THREE.MeshStandardMaterial({ color: '#CFC6B8', roughness: .9 }),
   roof: new THREE.MeshStandardMaterial({ color: '#FFFFFF', roughness: .95 }),
-  stop: new THREE.MeshStandardMaterial({ color: '#FFFFFF', roughness: .6 }),
   cloud: new THREE.MeshStandardMaterial({ color: '#FFFFFF', flatShading: true, transparent: true, opacity: .92, roughness: 1 }),
 };
 
@@ -406,30 +405,106 @@ function buildCity() {
   console.log(`[rideline] city: ${items.length} buildings, ${trees.length} trees`);
 }
 
-// stops
-let stopMesh = null;
-const stopIndex = [];
+// stops: screen-sized round markers (white dot, dark outline) drawn above trees and houses so they're always findable.
+// Hubs are bigger and amber. When a route or bus is selected, that route's stops take its colour and the rest fade.
+let stopPoints = null;
+const STOP_INK = new THREE.Color('#1F2328'), STOP_FILL = new THREE.Color('#FFFFFF'), STOP_HUB = new THREE.Color(ACCENT);
+const stopSizePx = zoom => clamp(3.2 + Math.log2(zoom) * 2.3, 3.2, 13);   // ~3 px for the whole city, ~10 px at street level
 function buildStops() {
-  const geo = new THREE.CylinderGeometry(1, 1, 1, 10); geo.translate(0, .5, 0);
-  stopMesh = new THREE.InstancedMesh(geo, M.stop, STOPS.length);
-  const ring = new THREE.Color('#FFFFFF'), hubC = new THREE.Color(ACCENT);
-  STOPS.forEach((s, i) => { stopIndex.push(s); stopMesh.setColorAt(i, s.hub ? hubC : ring); });
-  stopMesh.castShadow = true;
-  stopMesh.userData.type = 'stop';
-  world.add(stopMesh);
-}
-const _m4 = new THREE.Matrix4();
-let stopScaleKey = -1;
-function scaleStops(ppm) {
-  const key = Math.round(Math.log(ppm) * 8);
-  if (key === stopScaleKey) return; stopScaleKey = key;
+  const n = STOPS.length, geo = new THREE.BufferGeometry();
+  const pos = new Float32Array(n * 3), fill = new Float32Array(n * 3), ring = new Float32Array(n * 3), size = new Float32Array(n), alpha = new Float32Array(n);
   STOPS.forEach((s, i) => {
-    const rad = Math.max(2.5, (s.hub ? 5 : 1.7) / ppm), h = Math.max(3, (s.hub ? 6 : 2) / ppm);
-    _m4.makeScale(rad, h, rad).setPosition(s.xz[0], 1, s.xz[1]);
-    stopMesh.setMatrixAt(i, _m4);
+    pos.set([s.xz[0], 1.5, s.xz[1]], i * 3);
+    (s.hub ? STOP_HUB : STOP_FILL).toArray(fill, i * 3); STOP_INK.toArray(ring, i * 3);
+    size[i] = s.hub ? 1.7 : 1; alpha[i] = 1;
   });
-  stopMesh.instanceMatrix.needsUpdate = true;
-  stopMesh.computeBoundingSphere();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  geo.setAttribute('aFill', new THREE.BufferAttribute(fill, 3));
+  geo.setAttribute('aRing', new THREE.BufferAttribute(ring, 3));
+  geo.setAttribute('aSize', new THREE.BufferAttribute(size, 1));
+  geo.setAttribute('aAlpha', new THREE.BufferAttribute(alpha, 1));
+  const mat = new THREE.ShaderMaterial({
+    uniforms: { uPx: { value: 6 }, uOpacity: { value: 1 } },
+    vertexShader: `
+      attribute vec3 aFill; attribute vec3 aRing; attribute float aSize; attribute float aAlpha;
+      uniform float uPx; varying vec3 vFill; varying vec3 vRing; varying float vAlpha;
+      void main() {
+        vFill = aFill; vRing = aRing; vAlpha = aAlpha;
+        gl_PointSize = uPx * aSize;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }`,
+    fragmentShader: `
+      uniform float uOpacity; varying vec3 vFill; varying vec3 vRing; varying float vAlpha;
+      void main() {
+        float r = length(gl_PointCoord * 2.0 - 1.0), aa = fwidth(r);
+        if (r > 1.0) discard;
+        vec3 c = mix(vFill, vRing, smoothstep(0.56 - aa, 0.56 + aa, r));
+        gl_FragColor = vec4(c, (1.0 - smoothstep(1.0 - aa * 1.5, 1.0, r)) * vAlpha * uOpacity);
+      }`,
+    transparent: true, depthTest: false, depthWrite: false,
+  });
+  stopPoints = new THREE.Points(geo, mat);
+  stopPoints.renderOrder = 8; stopPoints.frustumCulled = false;
+  world.add(stopPoints);
+}
+let stopScaleKey = -1;
+function scaleStops() {
+  const key = Math.round(camera.zoom * 50) + renderer.getPixelRatio();
+  if (key === stopScaleKey) return; stopScaleKey = key;
+  stopPoints.material.uniforms.uPx.value = stopSizePx(camera.zoom) * renderer.getPixelRatio();
+  stopPoints.material.uniforms.uOpacity.value = clamp(.45 + (camera.zoom - 1) * .3, .45, 1);   // faint across the whole city
+}
+function highlightStops(active) {
+  const g = stopPoints.geometry, ring = g.attributes.aRing, size = g.attributes.aSize, alpha = g.attributes.aAlpha, c = new THREE.Color();
+  STOPS.forEach((s, i) => {
+    const rid = active.size ? s.routes.find(r => active.has(r)) : null;
+    c.copy(rid ? new THREE.Color(ROUTES.get(rid)?.color || ACCENT) : STOP_INK).toArray(ring.array, i * 3);
+    size.array[i] = (s.hub ? 1.7 : 1) * (rid ? 1.35 : 1);
+    alpha.array[i] = active.size && !rid ? .3 : 1;
+  });
+  ring.needsUpdate = size.needsUpdate = alpha.needsUpdate = true;
+}
+// nearest stop within a few pixels of a screen point (markers are too small to hit with a ray)
+function stopAtScreen(px, py) {
+  const reach = Math.max(9, stopSizePx(camera.zoom) * .9);
+  let best = null, bd = reach * reach;
+  for (const s of STOPS) {
+    v3.set(s.xz[0], 1.5, s.xz[1]).project(camera);
+    const dx = (v3.x + 1) / 2 * innerWidth - px, dy = (1 - v3.y) / 2 * innerHeight - py, d = dx * dx + dy * dy;
+    if (d < bd) { bd = d; best = s; }
+  }
+  return best;
+}
+
+// stop names, once zoomed in to street level: nearest the middle of the screen first, skipping any that would overlap
+const STOP_LABEL_ZOOM = 16, STOP_LABEL_MAX = 40;
+const stopLabelPool = [];
+function updateStopLabels() {
+  let used = 0;
+  if (camera.zoom >= STOP_LABEL_ZOOM) {
+    const cx = innerWidth / 2, cy = innerHeight / 2, cand = [];
+    for (const s of STOPS) {
+      if (s.hub || (selected?.type === 'stop' && selected.id === s.id)) continue;   // hubs and the selected stop have their own labels
+      v3.set(s.xz[0], 1.5, s.xz[1]).project(camera);
+      const x = (v3.x + 1) / 2 * innerWidth, y = (1 - v3.y) / 2 * innerHeight;
+      if (x < 0 || y < 60 || x > innerWidth || y > innerHeight) continue;
+      cand.push({ s, x, y, d: (x - cx) ** 2 + (y - cy) ** 2 });
+    }
+    cand.sort((a, b) => a.d - b.d);
+    const placed = [];
+    for (const c of cand) {
+      if (used >= STOP_LABEL_MAX) break;
+      const w = c.s.name.length * 6 + 14;
+      if (placed.some(p => Math.abs(p.x - c.x) < (p.w + w) / 2 && Math.abs(p.y - c.y) < 20)) continue;
+      placed.push({ x: c.x, y: c.y, w });
+      let el = stopLabelPool[used];
+      if (!el) { el = document.createElement('div'); el.className = 'lbl stopname'; $('#labels').appendChild(el); stopLabelPool.push(el); }
+      if (el.textContent !== c.s.name) el.textContent = c.s.name;
+      el.style.left = c.x + 'px'; el.style.top = c.y + 'px'; el.hidden = false;
+      used++;
+    }
+  }
+  for (let i = used; i < stopLabelPool.length; i++) stopLabelPool[i].hidden = true;
 }
 
 // landmarks at hubs: labels
@@ -606,6 +681,7 @@ function highlightRoutes() {
     mat.transparent = true;
     mat.userData.boost = on ? 1.7 : 1;
   }
+  highlightStops(selected?.type === 'stop' ? new Set() : active);   // a stop's own routes would light up half the city
 }
 
 // picking
@@ -621,8 +697,8 @@ renderer.domElement.addEventListener('pointerup', e => {
   raycaster.camera = camera;
   const hb = raycaster.intersectObjects(hitMeshes, false);
   if (hb.length) return select('bus', hb[0].object.userData.id);
-  const hs = raycaster.intersectObject(stopMesh, false);
-  if (hs.length) return select('stop', stopIndex[hs[0].instanceId].id);
+  const hs = stopAtScreen(e.clientX, e.clientY);
+  if (hs) return select('stop', hs.id);
   const lines = [...routeLines.values()].map(v => v.line).filter(l => l.material.opacity > .2);
   const hr = raycaster.intersectObjects(lines, false);
   if (hr.length) return select('route', hr[0].object.userData.id);
@@ -849,6 +925,7 @@ function renderDetail() {
     body.innerHTML = `
       <div class="d-kicker">${s.hub ? 'Transit hub' : 'Bus stop'} · #${esc(s.id)}</div>
       <div class="d-title">${esc(s.name)}</div>
+      <div class="d-sub">${s.wc === 1 ? '♿ Wheelchair accessible' : s.wc === 2 ? 'Not wheelchair accessible' : 'No wheelchair accessibility information'}</div>
       <div class="d-section"><h4>Routes serving this stop</h4><div class="chips">${s.routes.map(id => routeChip(id)).join('') || '<span class="na">None in schedule</span>'}</div></div>
       <div class="d-section"><h4>Next arrivals ${demo && !PREVIEW ? '<span class="na">(not available in demo)</span>' : PREVIEW ? '<span class="na">(snapshot, time-shifted)</span>' : ''}</h4>
         <ul class="list">${arr.length ? arr.map(a => `<li>${routeChip(a.routeId)}<span>${esc(a.headsign)}</span><span class="r">${fmtClock(a.eta)} · ${fmtIn(a.eta, bnow)} ${a.delay !== null && Math.abs(a.delay) >= 60 ? '· ' + fmtDelay(a.delay, true) : ''}</span></li>`).join('') : `<li class="na">${demo && !PREVIEW ? 'n/a' : 'No predicted arrivals in the feed right now'}</li>`}</ul></div>`;
@@ -1056,7 +1133,7 @@ function frame() {
   // lines: world width with a pixel minimum
   for (const L of [...roadLayers, ...routeBase]) L.mat.linewidth = clamp(L.ww * ppm, L.min, 60);
   for (const { mat } of routeLines.values()) mat.linewidth = clamp(3.5 * ppm, 2.2, 6) * (mat.userData.boost || 1);
-  scaleStops(ppm);
+  scaleStops();
 
   // buses
   const rt = nowS - RENDER_DELAY;
@@ -1098,6 +1175,7 @@ function frame() {
     v3.set(me.x, 1, me.z).project(camera);
     meDot.style.left = (v3.x + 1) / 2 * innerWidth + 'px'; meDot.style.top = (1 - v3.y) / 2 * innerHeight + 'px';
   }
+  updateStopLabels();
   for (const h of hubLabels) {
     v3.set(h.x, 30, h.z).project(camera);
     h.el.style.left = (v3.x + 1) / 2 * innerWidth + 'px'; h.el.style.top = (1 - v3.y) / 2 * innerHeight + 'px';
