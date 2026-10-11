@@ -56,7 +56,8 @@ controls.mouseButtons = { LEFT: THREE.MOUSE.PAN, MIDDLE: THREE.MOUSE.DOLLY, RIGH
 controls.touches = { ONE: THREE.TOUCH.PAN, TWO: THREE.TOUCH.DOLLY_ROTATE };
 controls.minZoom = 0.6; controls.maxZoom = 90;
 controls.minPolarAngle = 0.15; controls.maxPolarAngle = 1.25;
-controls.zoomSpeed = 4;   // ~19% per wheel notch (OrbitControls zooms a fixed step per wheel event)
+controls.zoomSpeed = 4;   // ~23% per mouse-wheel notch; also the exponent for two-finger touch pinch
+controls.pinchZoomFactor = 3;   // a medium trackpad pinch is about 2x (see the patch in vendor/OrbitControls.js)
 controls.zoomToCursor = true;
 
 const hemi = new THREE.HemisphereLight('#FFF8EE', '#C9BBA0', 1.45);

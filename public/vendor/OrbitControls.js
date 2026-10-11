@@ -75,6 +75,7 @@ class OrbitControls extends EventDispatcher {
 		// Set to false to disable zooming
 		this.enableZoom = true;
 		this.zoomSpeed = 1.0;
+		this.pinchZoomFactor = 10; // Rideline patch: multiplier for trackpad-pinch wheel events (ctrlKey)
 
 		// Set to false to disable rotating
 		this.enableRotate = true;
@@ -494,7 +495,8 @@ class OrbitControls extends EventDispatcher {
 
 		function getZoomScale( delta ) {
 
-			const normalized_delta = Math.abs( delta ) / ( 100 * ( window.devicePixelRatio | 0 ) );
+			// Rideline patch (backported from three.js r164+): no devicePixelRatio scaling, which halved zoom speed on Retina screens.
+			const normalized_delta = Math.abs( delta * 0.01 );
 			return Math.pow( 0.95, scope.zoomSpeed * normalized_delta );
 
 		}
@@ -732,13 +734,20 @@ class OrbitControls extends EventDispatcher {
 
 			updateZoomParameters( event.clientX, event.clientY );
 
-			if ( event.deltaY < 0 ) {
+			// Rideline patch (backported from three.js r164+): normalise line/page wheel units (Firefox) to pixels,
+			// and boost trackpad pinches, which browsers report as small wheel deltas with ctrlKey set.
+			let deltaY = event.deltaY;
+			if ( event.deltaMode === 1 ) deltaY *= 33;   // 3 lines per notch ≈ Chrome's 100 px
+			else if ( event.deltaMode === 2 ) deltaY *= 100;
+			if ( event.ctrlKey ) deltaY *= scope.pinchZoomFactor;
 
-				dollyIn( getZoomScale( event.deltaY ) );
+			if ( deltaY < 0 ) {
 
-			} else if ( event.deltaY > 0 ) {
+				dollyIn( getZoomScale( deltaY ) );
 
-				dollyOut( getZoomScale( event.deltaY ) );
+			} else if ( deltaY > 0 ) {
+
+				dollyOut( getZoomScale( deltaY ) );
 
 			}
 
