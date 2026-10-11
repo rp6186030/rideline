@@ -564,8 +564,11 @@ const selRing = new THREE.Mesh(new THREE.RingGeometry(.78, 1, 48), new THREE.Mes
 selRing.rotation.x = -Math.PI / 2; selRing.visible = false; selRing.renderOrder = 10; scene.add(selRing);
 const selLabel = document.createElement('div'); selLabel.className = 'lbl sel'; selLabel.hidden = true; $('#labels').appendChild(selLabel);
 
-function flyTo(x, z, zoom, dur = 1.2) {
+// orient: also glide the camera back to the default tilt and compass angle. keepMe: don't stop following "my location".
+function flyTo(x, z, zoom, dur = 1.2, { orient = false, keepMe = false } = {}) {
   glide = { t0: performance.now(), dur: dur * 1000, from: controls.target.clone(), to: new THREE.Vector3(x, 0, z), z0: camera.zoom, z1: zoom ?? camera.zoom };
+  if (orient) { glide.s0 = new THREE.Spherical().setFromVector3(camera.position.clone().sub(controls.target)); glide.s1 = new THREE.Spherical(CAM_DIST, POLAR, AZ); }
+  if (!keepMe) setMeFollow(false);
 }
 function selectedXZ() {
   if (!selected) return null;
@@ -632,10 +635,71 @@ renderer.domElement.addEventListener('dblclick', e => {
 });
 addEventListener('keydown', e => {
   if (e.target.closest('input')) return;
-  if (e.key === '+' || e.key === '=') flyTo(controls.target.x, controls.target.z, Math.min(controls.maxZoom, camera.zoom * 2), 0.35);
-  if (e.key === '-' || e.key === '_') flyTo(controls.target.x, controls.target.z, Math.max(controls.minZoom, camera.zoom / 2), 0.35);
+  if (e.key === '+' || e.key === '=') zoomBy(2);
+  if (e.key === '-' || e.key === '_') zoomBy(.5);
+  if (e.key === 'h' || e.key === 'H') goHome();
 });
-controls.addEventListener('start', () => { if (follow && downAt) follow = false; glide = null; });
+controls.addEventListener('start', () => { if (follow && downAt) follow = false; glide = null; setMeFollow(false); });
+
+// ============================================================ map controls: zoom, whole city, my location
+const HOME = { x: 0, z: 400, zoom: 1.15 };
+function zoomBy(f) {
+  const z = clamp((glide ? glide.z1 : camera.zoom) * f, controls.minZoom, controls.maxZoom);   // stack quick clicks
+  flyTo(controls.target.x, controls.target.z, z, 0.35, { keepMe: true });
+}
+function goHome() {
+  follow = false;
+  document.querySelectorAll('#areas .chip').forEach(c => c.classList.toggle('on', c.textContent === 'City'));
+  flyTo(HOME.x, HOME.z, HOME.zoom, 1.2, { orient: true });
+}
+$('#zin').onclick = () => zoomBy(2);
+$('#zout').onclick = () => zoomBy(.5);
+$('#home').onclick = goHome;
+
+// Live location: the browser's GPS/Wi-Fi fix, drawn as a dot plus a circle the size of the reported accuracy.
+const ME_RANGE = 30000;   // metres from the city centre; further away than this there's nothing of ours to show
+let meWatch = null, me = null, meFollow = false;
+const meDot = document.createElement('div'); meDot.className = 'me-dot'; meDot.hidden = true; $('#labels').appendChild(meDot);
+const meCircle = new THREE.Mesh(new THREE.CircleGeometry(1, 64), new THREE.MeshBasicMaterial({ color: '#2563EB', transparent: true, opacity: .14, depthTest: false, depthWrite: false }));
+meCircle.rotation.x = -Math.PI / 2; meCircle.renderOrder = 9; meCircle.visible = false; scene.add(meCircle);
+function setMeFollow(on) {
+  meFollow = on;
+  const b = $('#locate');
+  b.classList.toggle('on', meWatch !== null);
+  b.classList.toggle('following', on);
+  b.title = meWatch === null ? 'Show my location' : on ? 'Stop showing my location' : 'Centre on my location';
+}
+function stopLocate() {
+  if (meWatch !== null) navigator.geolocation.clearWatch(meWatch);
+  meWatch = null; me = null; meDot.hidden = true; meCircle.visible = false;
+  $('#locate').classList.remove('wait');
+  setMeFollow(false);
+}
+function centreOnMe() {
+  if (Math.hypot(me.x - HOME.x, me.z - HOME.z) > ME_RANGE) { toast('You appear to be outside Saskatoon, so there’s nothing to centre on'); return; }
+  follow = false;
+  flyTo(me.x, me.z, Math.max(camera.zoom, 11), 1.2);
+  setMeFollow(true);
+}
+$('#locate').onclick = () => {
+  if (meWatch !== null) { if (meFollow) stopLocate(); else if (me) centreOnMe(); return; }
+  if (!('geolocation' in navigator)) { toast('This browser can’t share your location'); return; }
+  if (!isSecureContext) { toast('Your location only works over https:// or on localhost'); return; }
+  $('#locate').classList.add('wait');
+  let first = true;
+  meWatch = navigator.geolocation.watchPosition(pos => {
+    const [x, z] = proj(pos.coords.latitude, pos.coords.longitude);
+    me = { x, z, acc: pos.coords.accuracy };
+    meDot.hidden = false; meCircle.visible = true;
+    meCircle.position.set(x, 1, z); meCircle.scale.setScalar(Math.max(5, me.acc));
+    if (first) { first = false; $('#locate').classList.remove('wait'); centreOnMe(); }
+  }, err => {
+    if (err.code !== err.PERMISSION_DENIED && me) return;   // a missed update after a good fix: keep the last one
+    toast(err.code === err.PERMISSION_DENIED ? 'Location permission was denied. Allow it in your browser’s site settings.' : 'Couldn’t get your location');
+    stopLocate();
+  }, { enableHighAccuracy: true, maximumAge: 5000, timeout: 20000 });
+  setMeFollow(false);
+};
 
 // ============================================================ day / night
 let dayMode = 'auto', night = 0, nightTarget = 0;
@@ -676,7 +740,10 @@ const AREAS = (() => {
 })();
 for (const [name, xz, zoom] of AREAS) {
   const b = document.createElement('button'); b.className = 'chip'; b.textContent = name;
-  b.onclick = () => { follow = false; document.querySelectorAll('#areas .chip').forEach(c => c.classList.toggle('on', c === b)); flyTo(xz[0], xz[1], zoom); };
+  b.onclick = () => {
+    if (name === 'City') return goHome();
+    follow = false; document.querySelectorAll('#areas .chip').forEach(c => c.classList.toggle('on', c === b)); flyTo(xz[0], xz[1], zoom);
+  };
   $('#areas').appendChild(b);
 }
 
@@ -951,10 +1018,16 @@ function frame() {
     const tgt = glide.from.clone().lerp(glide.to, e), delta = tgt.sub(controls.target);
     controls.target.add(delta); camera.position.add(delta);
     camera.zoom = Math.exp(lerp(Math.log(glide.z0), Math.log(glide.z1), e)); camera.updateProjectionMatrix();
+    if (glide.s1) {
+      const s = new THREE.Spherical(CAM_DIST, lerp(glide.s0.phi, glide.s1.phi, e), angLerp(glide.s0.theta, glide.s1.theta, e));
+      camera.position.setFromSpherical(s).add(controls.target);
+    }
     if (k >= 1) glide = null;
   } else if (follow && selected?.type === 'bus') {
     const r = buses.get(selected.id);
     if (r) { v3.set(r.pos.x, 0, r.pos.z).sub(controls.target).multiplyScalar(Math.min(1, dt * 3)); controls.target.add(v3); camera.position.add(v3); }
+  } else if (meFollow && me) {
+    v3.set(me.x, 0, me.z).sub(controls.target).multiplyScalar(Math.min(1, dt * 3)); controls.target.add(v3); camera.position.add(v3);
   }
   controls.update();
 
@@ -1020,6 +1093,10 @@ function frame() {
     const r = isBus && buses.get(selected.id);
     selLabel.textContent = isBus ? (r ? `Bus ${r.data.label} · Route ${r.data.routeShort}` : '') : selected.type === 'stop' ? STOP_BY_ID.get(selected.id)?.name : `Route ${ROUTES.get(selected.id)?.short}`;
   } else { selRing.visible = false; selLabel.hidden = true; }
+  if (me) {
+    v3.set(me.x, 1, me.z).project(camera);
+    meDot.style.left = (v3.x + 1) / 2 * innerWidth + 'px'; meDot.style.top = (1 - v3.y) / 2 * innerHeight + 'px';
+  }
   for (const h of hubLabels) {
     v3.set(h.x, 30, h.z).project(camera);
     h.el.style.left = (v3.x + 1) / 2 * innerWidth + 'px'; h.el.style.top = (1 - v3.y) / 2 * innerHeight + 'px';
