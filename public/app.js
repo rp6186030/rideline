@@ -257,7 +257,7 @@ function makeLines(polys, mat, yOff) {
 
 // OpenStreetMap roads / parks / lakes (downloaded by the server on first run)
 const roadLayers = [];   // {line, worldWidth, minPx}
-const ROAD_W = { m: [26, 3.2], t: [22, 3], p: [17, 2.4], s: [13, 1.8], r: [10, 1.3], l: [9, 1.2] };
+const ROAD_W = { m: [26, 3.2], t: [22, 3], p: [17, 2.4], s: [13, 1.8], r: [10, 1.3], l: [9, 1.2], n: [7, .8] };   // n = residential streets
 const roadMats = {};
 let osmParks = [];
 function buildOsm(osm) {
@@ -282,6 +282,117 @@ function buildOsm(osm) {
     const m = new THREE.Mesh(new THREE.ShapeGeometry(new THREE.Shape(P.map(([x, z]) => new THREE.Vector2(x, -z)))), M.lake);
     m.rotation.x = -Math.PI / 2; m.position.y = 0.4; world.add(m);
   }
+}
+
+// ============================================================ real city (trial): OSM streets + building footprints
+// data/city.json comes from lib/osm.js loadCity(). Buildings cover a central trial area (REAL_AREA); outside it the
+// procedural houses are still used.
+let REAL_AREA = null;   // {a, b, c, d}: projected x/z box covered by real buildings
+const inRealArea = (x, z) => REAL_AREA && x > REAL_AREA.a && x < REAL_AREA.b && z > REAL_AREA.c && z < REAL_AREA.d;
+function buildStreets(city) {
+  const polys = (city.streets || []).map(st => st.p.map(q => proj(q[0], q[1])));
+  if (!polys.length) return;
+  const mat = roadMats.n = lineMat(SEASONS[season].road);
+  const line = makeLines(polys, mat, 0.6); line.renderOrder = 1; world.add(line);
+  roadLayers.push({ line, mat, ww: ROAD_W.n[0], min: ROAD_W.n[1], polys });
+}
+
+// Height when OSM has no height/levels tag: a typical value for the building type, sized up for big footprints
+// and downtown. A per-building jitter keeps rows of identical houses from looking stamped.
+const SMALL_TYPES = new Set(['garage', 'garages', 'shed', 'carport', 'roof', 'hut', 'kiosk', 'shelter']);
+const HOUSE_TYPES = new Set(['house', 'detached', 'semidetached_house', 'terrace', 'bungalow']);
+function estimateHeight(type, area, dcc, jit) {
+  if (SMALL_TYPES.has(type)) return 3 + jit;
+  if (HOUSE_TYPES.has(type)) return 5.5 + jit * 2;
+  if (type === 'apartments' || type === 'dormitory') return area > 900 ? 14 + jit * 8 : 10 + jit * 3;
+  if (type === 'office') return 12 + jit * 10;
+  if (type === 'hospital') return 18 + jit * 8;
+  if (['school', 'university', 'college', 'public', 'civic', 'government'].includes(type)) return 10 + jit * 5;
+  if (['church', 'cathedral', 'chapel'].includes(type)) return 12 + jit * 4;
+  if (['commercial', 'retail', 'supermarket'].includes(type)) return dcc < 800 ? 9 + jit * 14 : 6.5 + jit * 2;
+  if (['industrial', 'warehouse', 'manufacture'].includes(type)) return 7.5 + jit * 3;
+  // 'yes' or unrecognised
+  if (dcc < 700 && area > 350) return 12 + jit * 26;
+  if (area < 110) return 3.2 + jit;            // most small untagged footprints are garages
+  if (area < 400) return 5.5 + jit * 2;        // house-sized
+  return 7 + jit * 4;
+}
+const BUILDING_TINTS = {
+  house: ['#EBDDCB', '#E5D4BF', '#DCC9B1', '#F1E8DA', '#D9C4A9', '#E9E1D4'],
+  flat: ['#E3D6C6', '#D9CDBE', '#E8DFD3', '#CFC3B4'],
+  commercial: ['#DCE1E7', '#CBD5DF', '#E2E5E8', '#D3D9DE'],
+  industrial: ['#D8D4CC', '#CFCBC3', '#DEDAD3'],
+  civic: ['#E8E3DA', '#D8C1A0', '#E2D6C2'],
+  small: ['#E4DCD0', '#D6CEC2'],
+};
+function tintGroup(type, h) {
+  if (SMALL_TYPES.has(type)) return 'small';
+  if (HOUSE_TYPES.has(type)) return 'house';
+  if (type === 'apartments' || type === 'dormitory') return 'flat';
+  if (['commercial', 'retail', 'supermarket', 'office', 'hotel'].includes(type)) return 'commercial';
+  if (['industrial', 'warehouse', 'manufacture'].includes(type)) return 'industrial';
+  if (['school', 'university', 'college', 'public', 'civic', 'government', 'church', 'cathedral', 'hospital'].includes(type)) return 'civic';
+  return h > 10 ? 'commercial' : 'house';
+}
+
+let realBuildings = null;
+function buildRealBuildings(city) {
+  if (!city.buildings?.length) return 0;
+  const [la0, lo0, la1, lo1] = city.buildingBbox, [ax, cz] = proj(la1, lo0), [bx, dz] = proj(la0, lo1);
+  REAL_AREA = { a: ax, b: bx, c: cz, d: dz };
+  const cc = hub('city centre').xz;
+  const pos = [], nor = [], uv = [], col = [], wallIdx = [], roofIdx = [];
+  const color = new THREE.Color();
+  const WIN_U = 12.8, WIN_V = 32;   // metres per repeat of the window texture (4 windows wide, 10 floors high)
+  city.buildings.forEach((row, bi) => {
+    // decode [type, height dm, lat0, lon0, dlat, dlon, ...] (millionths of a degree, delta-encoded)
+    let la = 0, lo = 0; const P = [];
+    for (let i = 2; i < row.length; i += 2) { la += row[i]; lo += row[i + 1]; P.push(proj(la / 1e6, lo / 1e6)); }
+    let A = 0, cxs = 0, czs = 0;
+    for (let i = 0, j = P.length - 1; i < P.length; j = i++) { A += P[j][0] * P[i][1] - P[i][0] * P[j][1]; cxs += P[i][0]; czs += P[i][1]; }
+    if (A > 0) P.reverse();   // make every ring wind the same way so wall normals point outwards
+    const area = Math.abs(A / 2), type = city.types[row[0]];
+    const fr = Math.sin(bi * 12.9898) * 43758.5453, jit = fr - Math.floor(fr);   // stable 0..1 per building
+    const h = row[1] > 0 ? row[1] / 10 : estimateHeight(type, area, Math.hypot(cxs / P.length - cc[0], czs / P.length - cc[1]), jit);
+    const tints = BUILDING_TINTS[tintGroup(type, h)];
+    color.set(tints[(bi * 7919) % tints.length]);
+    // walls
+    let run = 0;
+    for (let i = 0; i < P.length; i++) {
+      const [x0, z0] = P[i], [x1, z1] = P[(i + 1) % P.length], dx = x1 - x0, dz = z1 - z0, L = Math.hypot(dx, dz);
+      if (L < 0.05) continue;
+      const nx = -dz / L, nz = dx / L, base = pos.length / 3, u0 = run / WIN_U, u1 = (run + L) / WIN_U;
+      pos.push(x0, 0, z0, x1, 0, z1, x1, h, z1, x0, h, z0);
+      for (let k = 0; k < 4; k++) { nor.push(nx, 0, nz); col.push(color.r, color.g, color.b); }
+      uv.push(u0, 0, u1, 0, u1, h / WIN_V, u0, h / WIN_V);
+      wallIdx.push(base, base + 1, base + 2, base, base + 2, base + 3);
+      run += L;
+    }
+    // flat roof
+    const tris = THREE.ShapeUtils.triangulateShape(P.map(([x, z]) => new THREE.Vector2(x, z)), []);
+    const base = pos.length / 3;
+    for (const [x, z] of P) { pos.push(x, h, z); nor.push(0, 1, 0); uv.push(0, 0); col.push(color.r, color.g, color.b); }
+    for (const [a, b, c] of tris) {
+      const [xa, za] = P[a], [xb, zb] = P[b], [xc, zc] = P[c];
+      const up = (zb - za) * (xc - xa) - (xb - xa) * (zc - za);   // y of (b-a)x(c-a): positive means it faces up
+      roofIdx.push(base + a, ...(up > 0 ? [base + b, base + c] : [base + c, base + b]));
+    }
+  });
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  g.setIndex([...wallIdx, ...roofIdx]);
+  g.addGroup(0, wallIdx.length, 0); g.addGroup(wallIdx.length, roofIdx.length, 1);
+  g.computeBoundingSphere();
+  for (const t of [wallTex, winTex]) { t.wrapS = t.wrapT = THREE.RepeatWrapping; t.needsUpdate = true; }
+  M.wallReal = M.wall.clone(); M.wallReal.vertexColors = true;
+  M.roofReal = M.roof.clone(); M.roofReal.vertexColors = true;
+  realBuildings = new THREE.Mesh(g, [M.wallReal, M.roofReal]);
+  realBuildings.castShadow = true; realBuildings.receiveShadow = true;
+  world.add(realBuildings);
+  return city.buildings.length;
 }
 
 // transit route lines (one object per route so a route can be highlighted)
@@ -358,6 +469,7 @@ function buildCity() {
     let near = false; for (const [lx, lz] of lineHash.near(jx, jz, 30)) if (Math.hypot(lx - jx, lz - jz) < (downtown ? 22 : 18)) { near = true; break; }
     if (near) continue;
     if (osmParks.length && inPark(jx, jz)) continue;
+    if (inRealArea(jx, jz)) continue;   // real OSM buildings here
     let w, d, h, c;
     if (downtown) { w = 26 + r() * 22; d = 26 + r() * 22; h = 14 + Math.pow(r(), 1.7) * 95 * (1 - dcc / 1100); c = 5 + (r() * 3 | 0); }
     else if (campus) { w = 26 + r() * 26; d = 18 + r() * 18; h = 10 + r() * 22; c = 8; }
@@ -380,6 +492,7 @@ function buildCity() {
     const dx = bx - ax, dz = bz - az, L = Math.hypot(dx, dz) || 1, side = r() < .5 ? -1 : 1, off = RIVER_HALF + 25 + r() * 260;
     const x = ax + dx * r() + (-dz / L) * off * side, z = az + dz * r() + (dx / L) * off * side;
     if (riverDist(x, z) < RIVER_HALF + 20) continue;
+    if (inRealArea(x, z) && !(osmParks.length && inPark(x, z))) continue;   // only park trees among real buildings
     let near = false; for (const [lx, lz] of lineHash.near(x, z, 20)) if (Math.hypot(lx - x, lz - z) < 14) { near = true; break; }
     if (!near) trees.push([x, z, 7 + r() * 9]);
   }
@@ -1048,7 +1161,11 @@ $('#search-results').addEventListener('click', e => { const b = e.target.closest
 // ============================================================ build world
 resize();
 let osm = await fetch('data/osm.json').then(r => r.json()).catch(() => ({ roads: [], missing: true }));
+const city = await fetch('data/city.json').then(r => r.json()).catch(() => ({ missing: true }));
+buildStreets(city);
 buildOsm(osm);
+const nReal = buildRealBuildings(city);
+if (nReal) console.log(`[rideline] real city: ${nReal} OpenStreetMap buildings, ${city.streets.length} streets`);
 buildRoutes(!!(osm.roads && osm.roads.length));
 buildBridges();
 buildStops();
@@ -1142,6 +1259,7 @@ function frame() {
   hemi.intensity = lerp(1.45, .28, night); hemi.color.set(night > .5 ? '#9DB0D8' : '#FFF6E8');
   sun.intensity = lerp(2.3, .35, night) * (season === 'blizzard' ? .55 : 1); sun.color.set(night > .5 ? '#AFC3FF' : '#FFF1D6');
   M.wall.emissiveIntensity = night * 1.1;
+  if (M.wallReal) M.wallReal.emissiveIntensity = night * 1.1;
   M_LAMP.emissiveIntensity = night * 3; M_GLOW.opacity = night * .9;
   waterUniforms.uNight.value = night; waterUniforms.uTime.value = t;
 

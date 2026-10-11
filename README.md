@@ -41,7 +41,7 @@ The schedule, the map layer and a saved snapshot are all included in `data/`, so
 |---|---|
 | `node server.js` or `npm start` | Live feed (the default) |
 | `node server.js --replay` or `npm run replay` | Replays the saved snapshot from Oct 10 2026 at 18:00, with no internet needed |
-| `node server.js --refresh-osm` | Downloads the OpenStreetMap layer again |
+| `node server.js --refresh-osm` | Downloads the OpenStreetMap layers (roads, parks, streets, buildings) again |
 | `PORT=9000 node server.js` | Uses a different port |
 | `http://localhost:8787/?lite` | Turns off shadows, for slower machines |
 
@@ -52,7 +52,8 @@ The **Demo** button in the app moves the saved snapshot's buses along their real
 - **Live feeds** (no key needed), fetched every 15 seconds:
   `https://saskprdtmgtfs.sasktrpcloud.com/TMGTFSRealTimeWebService/` + `Vehicle/VehiclePositions.pb`, `TripUpdate/TripUpdates.pb`, `Alert/Alerts.pb`
 - **Static schedule:** `data/google_transit.zip`, from the City of Saskatoon open data portal.
-- **Map:** OpenStreetMap contributors (ODbL).
+- **Map:** OpenStreetMap contributors (ODbL): main roads, parks and lakes in `data/osm.json`; residential streets and real building footprints in `data/city.json`.
+  Buildings currently cover a central trial area (downtown, Riversdale, City Park, Nutana and the university). Outside it the app still draws simplified, made-up houses. Heights come from OpenStreetMap `height` or `building:levels` tags where they exist, otherwise they're estimated from the building type and size.
 
 ## Update the schedule (the current one ends 2027-01-02)
 
@@ -91,5 +92,5 @@ The code is under the [MIT License](LICENSE). That covers the code only, not the
 | Part | License |
 |---|---|
 | `public/vendor/` (Three.js r160 and its addons) | MIT, © Three.js Authors |
-| `data/osm.json` | © OpenStreetMap contributors, [ODbL](https://opendatacommons.org/licenses/odbl/) |
+| `data/osm.json`, `data/city.json` | © OpenStreetMap contributors, [ODbL](https://opendatacommons.org/licenses/odbl/) |
 | `data/google_transit.zip`, `data/snapshot/` and the files built from them | City of Saskatoon / Saskatoon Transit, under the City of Saskatoon Open Data Terms of Use |

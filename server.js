@@ -12,7 +12,7 @@ const fs = require('fs');
 const path = require('path');
 const zlib = require('zlib');
 const { decodeFeed } = require('./lib/gtfsrt');
-const { loadOsm } = require('./lib/osm');
+const { loadOsm, loadCity } = require('./lib/osm');
 
 const ROOT = __dirname;
 const PORT = +process.env.PORT || 8787;
@@ -249,6 +249,8 @@ function liveStatus() {
 }
 
 let OSM = null;
+let CITY = null;   // { raw, gz } of data/city.json, compressed once because it's a few MB
+
 const server = http.createServer((req, res) => {
   const url = new URL(req.url, 'http://x');
   try {
@@ -260,6 +262,12 @@ const server = http.createServer((req, res) => {
     if (url.pathname === '/api/health') return json(req, res, { ok: true, status: liveStatus(), error: state.lastError, buses: state.merged ? state.merged.buses.length : 0 });
     if (url.pathname === '/data/static.json') return send(req, res, 200, fs.readFileSync(path.join(ROOT, 'data/static.json')), TYPES['.json']);
     if (url.pathname === '/data/osm.json') return OSM ? json(req, res, OSM) : json(req, res, { roads: [], parks: [], water: [], missing: true });
+    if (url.pathname === '/data/city.json') {
+      if (!CITY) return json(req, res, { streets: [], buildings: [], missing: true });
+      const gz = /\bgzip\b/.test(req.headers['accept-encoding'] || '');
+      res.writeHead(200, { 'Content-Type': TYPES['.json'], 'Cache-Control': 'no-store', ...(gz ? { 'Content-Encoding': 'gzip' } : {}) });
+      return res.end(gz ? CITY.gz : CITY.raw);
+    }
     let p = url.pathname === '/' ? '/index.html' : decodeURIComponent(url.pathname);
     const file = path.normalize(path.join(ROOT, 'public', p));
     if (!file.startsWith(path.join(ROOT, 'public')) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) return send(req, res, 404, Buffer.from('Not found'), 'text/plain');
@@ -276,5 +284,8 @@ server.listen(PORT, () => {
   setInterval(() => poll().catch(e => log('poll failed', e.message)), POLL_MS);
   loadOsm(path.join(ROOT, 'data/osm.json'), { refresh: ARGS.has('--refresh-osm'), log })
     .then(o => { OSM = o; })
-    .catch(e => log('OpenStreetMap download failed, the map will show transit data only:', e.message));
+    .catch(e => log('OpenStreetMap download failed, the map will show transit data only:', e.message))
+    .then(() => loadCity(path.join(ROOT, 'data/city.json'), { refresh: ARGS.has('--refresh-osm'), log }))
+    .then(c => { if (c) { const raw = Buffer.from(JSON.stringify(c)); CITY = { raw, gz: zlib.gzipSync(raw) }; } })
+    .catch(e => log('OpenStreetMap streets/buildings download failed, using the simplified city:', e.message));
 });
