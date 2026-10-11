@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Rideline</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='3' y='8' width='26' height='15' rx='4' fill='%23F59E0B'/%3E%3Crect x='6' y='11' width='20' height='5' rx='1' fill='%23fff'/%3E%3Ccircle cx='10' cy='24' r='3' fill='%23222'/%3E%3Ccircle cx='22' cy='24' r='3' fill='%23222'/%3E%3C/svg%3E">
+<script type="importmap">
+{ "imports": { "three": "./vendor/three.module.min.js" } }
+</script>
+</head>
+<body>
+<div id="scene"></div>
+<div id="weather-overlay"></div>
+<div id="labels"></div>
+
+<header id="topbar" class="glass">
+  <div class="brand">
+    <svg viewBox="0 0 32 32" aria-hidden="true"><rect x="3" y="8" width="26" height="15" rx="4" fill="var(--accent)"/><rect x="6" y="11" width="20" height="5" rx="1" fill="#fff"/><circle cx="10" cy="24" r="3" fill="currentColor"/><circle cx="22" cy="24" r="3" fill="currentColor"/></svg>
+    <span>Rideline</span>
+  </div>
+  <div class="search">
+    <input id="search" type="search" placeholder="Search route, bus or stop" autocomplete="off" spellcheck="false" aria-label="Search">
+    <div id="search-results" class="glass dropdown" hidden></div>
+  </div>
+  <nav id="areas" aria-label="Areas"></nav>
+  <div class="spacer"></div>
+  <div class="menu">
+    <button id="weather-btn" class="chip" aria-haspopup="true">Summer</button>
+    <div id="weather-menu" class="glass dropdown" hidden>
+      <button data-season="summer">Summer</button>
+      <button data-season="autumn">Autumn</button>
+      <button data-season="winter">Winter</button>
+      <button data-season="blizzard">Blizzard</button>
+    </div>
+  </div>
+  <button id="daynight" class="chip" title="Day / night: Auto follows real Saskatoon time">Auto</button>
+  <button id="demo-btn" class="chip" title="Simulated movement of a saved snapshot, for testing">Demo</button>
+  <div id="clock" class="clock" title="Saskatoon time (America/Regina)">--:--:--</div>
+  <div id="feed" class="feed" title=""><i></i><span>Connecting</span></div>
+</header>
+
+<section id="kpis">
+  <div class="kpi glass"><label>Buses in service</label><b id="k-buses">–</b><small id="k-buses-sub">&nbsp;</small></div>
+  <div class="kpi glass"><label>Average delay</label><b id="k-delay">–</b><small id="k-delay-sub">&nbsp;</small></div>
+  <div class="kpi glass"><label>Routes active</label><b id="k-routes">–</b><small id="k-routes-sub">&nbsp;</small></div>
+</section>
+
+<aside id="detail" class="glass" hidden>
+  <button class="close" id="detail-close" aria-label="Close">×</button>
+  <div id="detail-body"></div>
+</aside>
+
+<section id="tracker" class="glass" hidden>
+  <header><span>Trip tracker</span><small id="tracker-sub"></small></header>
+  <ol id="tracker-list"></ol>
+</section>
+
+<section id="table" class="glass">
+  <div class="tabs" role="tablist">
+    <button class="tab active" data-tab="buses">Buses <em id="t-buses"></em></button>
+    <button class="tab" data-tab="routes">Routes <em id="t-routes"></em></button>
+    <button class="tab" data-tab="stops">Stops <em id="t-stops"></em></button>
+    <button class="tab" data-tab="alerts">Alerts <em id="t-alerts"></em></button>
+    <div class="spacer"></div>
+    <button id="table-toggle" class="icon" aria-label="Collapse table">▾</button>
+  </div>
+  <div class="table-wrap"><table><thead id="thead"></thead><tbody id="tbody"></tbody></table></div>
+</section>
+
+<div id="mapctl" class="glass" role="group" aria-label="Map controls">
+  <button id="zin" title="Zoom in (+)" aria-label="Zoom in"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
+  <button id="zout" title="Zoom out (−)" aria-label="Zoom out"><svg viewBox="0 0 24 24"><path d="M5 12h14"/></svg></button>
+  <button id="locate" title="Show my location" aria-label="Show my location"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="8"/></svg></button>
+</div>
+
+<footer id="attrib">Transit data: Saskatoon Transit Open Data · Map data © OpenStreetMap contributors · <span id="attrib-mode"></span></footer>
+
+<div id="toast" hidden></div>
+<script type="module" src="app.js"></script>
+</body>
+</html>
