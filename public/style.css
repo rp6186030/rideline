@@ -55,6 +55,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .dropdown small { color: var(--muted); margin-left: auto; padding-left: 12px; }
 #areas { display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; }
 #areas::-webkit-scrollbar { display: none; }
+#areas.more-right { -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 36px), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 36px), transparent); }
 .chip { height: 32px; padding: 0 12px; border-radius: 9px; border: 1px solid var(--line); background: transparent; white-space: nowrap; font-weight: 500; }
 .chip:hover { background: rgba(245, 158, 11, .12); }
 .chip.on { background: var(--accent); border-color: var(--accent); color: #1b1203; }
@@ -150,12 +151,13 @@ body.blizzard #weather-overlay { opacity: 1; }
 
 /* ---------- map controls ---------- */
 #mapctl { position: fixed; right: 12px; bottom: calc(var(--table-h) + 22px); display: flex; flex-direction: column; padding: 4px; gap: 2px; border-radius: 12px; z-index: 11; }
-body:not(.no-detail) #mapctl { right: 364px; }
-body:has(#table.collapsed) #mapctl { bottom: 66px; }
+/* with the detail panel open, sit as a row under it, level with the table bar, instead of floating mid-map */
+body:not(.no-detail) #mapctl { bottom: 12px; flex-direction: row; }
 #mapctl button { width: 36px; height: 36px; display: grid; place-items: center; border: 0; border-radius: 9px; background: transparent; color: var(--ink); }
 #mapctl button:hover { background: rgba(245, 158, 11, .14); }
 #mapctl button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 #mapctl #home { margin-top: 4px; }
+body:not(.no-detail) #mapctl #home { margin: 0 0 0 4px; }
 #mapctl svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 #locate.on { color: var(--info); }
 #locate.following { background: rgba(37, 99, 235, .14); }
@@ -176,6 +178,18 @@ body.feed-offline #kpis b { opacity: .45; }
   #areas { max-width: 260px; }
   .search { flex-basis: 200px; }
   #daynight, #demo-btn { padding: 0 9px; }
+}
+@media (max-height: 760px) and (min-width: 761px) {
+  #kpis { gap: 8px; }
+  .kpi { width: 150px; padding: 8px 12px; }
+  .kpi b { font-size: 22px; }
+  .kpi small { display: none; }
+  #tracker { width: 280px; padding: 10px 12px; }
+  #tracker-list li:nth-child(n+4) { display: none; }
+  #detail { padding: 12px 14px; }
+  #detail .d-title { font-size: 19px; }
+  #detail .stats { gap: 6px; margin: 8px 0 10px; }
+  #detail .stat { padding: 6px 9px; }
 }
 @media (max-width: 760px) {
   :root { --table-h: 44px; }
@@ -198,7 +212,8 @@ body.feed-offline #kpis b { opacity: .45; }
   #table { left: 8px; right: 8px !important; bottom: 8px; }
   #table:not(.collapsed) { --table-h: 46vh; height: 46vh; z-index: 26; }
   #attrib { display: none; }
-  #mapctl, body:not(.no-detail) #mapctl, body:has(#table.collapsed) #mapctl { right: 8px; bottom: 132px; }
+  #mapctl, body:not(.no-detail) #mapctl { right: 8px; bottom: 132px; flex-direction: column; }
+  body:not(.no-detail) #mapctl #home { margin: 4px 0 0; }
 }
 .warn-txt { color: var(--warn); }
 

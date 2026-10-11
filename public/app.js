@@ -823,6 +823,11 @@ for (const [name, xz, zoom] of AREAS) {
   };
   $('#areas').appendChild(b);
 }
+// the area chips scroll sideways on narrow windows: fade the edge while more are hidden, and let a mouse wheel scroll them
+const areasEl = $('#areas'), areasFade = () => areasEl.classList.toggle('more-right', areasEl.scrollLeft + areasEl.clientWidth < areasEl.scrollWidth - 2);
+areasEl.addEventListener('scroll', areasFade, { passive: true });
+areasEl.addEventListener('wheel', e => { if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) { areasEl.scrollLeft += e.deltaY; e.preventDefault(); } }, { passive: false });
+addEventListener('resize', areasFade); areasFade();
 
 // ============================================================ feed polling
 let demo = PREVIEW;
@@ -1014,7 +1019,8 @@ $('#thead').onclick = e => { const k = e.target.dataset.k; if (!k) return; sort[
 $('#tbody').onclick = e => { if (e.target.closest('[data-route]')) return select('route', e.target.closest('[data-route]').dataset.route); const tr = e.target.closest('tr[data-i]'); if (tr) tableRows[+tr.dataset.i]?.on(); };
 document.querySelectorAll('.tab').forEach(b => b.onclick = () => {
   tab = b.dataset.tab; document.querySelectorAll('.tab').forEach(x => x.classList.toggle('active', x === b));
-  $('#table').classList.remove('collapsed'); if (tab === 'stops') loadStopBoard(true); renderTable();
+  $('#table').classList.remove('collapsed'); $('#table-toggle').textContent = '▾'; document.documentElement.style.setProperty('--table-h', '');
+  if (tab === 'stops') loadStopBoard(true); renderTable();
 });
 $('#table-toggle').onclick = () => { const c = $('#table').classList.toggle('collapsed'); $('#table-toggle').textContent = c ? '▴' : '▾'; document.documentElement.style.setProperty('--table-h', c ? '44px' : ''); };
 if (innerWidth < 760) { $('#table').classList.add('collapsed'); $('#table-toggle').textContent = '▴'; }
@@ -1086,10 +1092,26 @@ if (LITE) setQuality(2);
 const clock = new THREE.Clock();
 const v3 = new THREE.Vector3();
 let shadowKey = '';
+// While the detail panel is open, shift the picture so the point being looked at sits in the middle of the map area
+// that's still visible: left of the side panel on desktop, above the bottom sheet on phones.
+const viewOff = { x: 0, y: 0 };
+function updateViewOffset(rawDt) {
+  let wx = 0, wy = 0;
+  if (!document.body.classList.contains('no-detail')) {
+    if (innerWidth > 760) wx = ($('#detail').offsetWidth + 12) / 2;
+    else wy = innerHeight / 2 - ($('#topbar').getBoundingClientRect().bottom + $('#detail').getBoundingClientRect().top) / 2;
+  }
+  const k = Math.min(1, rawDt * 6);
+  viewOff.x = Math.abs(wx - viewOff.x) < .5 ? wx : lerp(viewOff.x, wx, k);
+  viewOff.y = Math.abs(wy - viewOff.y) < .5 ? wy : lerp(viewOff.y, wy, k);
+  if (viewOff.x || viewOff.y) camera.setViewOffset(innerWidth, innerHeight, viewOff.x, viewOff.y, innerWidth, innerHeight);
+  else if (camera.view?.enabled) camera.clearViewOffset();
+}
 function frame() {
   const rawDt = Math.min(1, clock.getDelta()), dt = Math.min(.1, rawDt), t = clock.elapsedTime;
   const nowS = Date.now() / 1000;
 
+  updateViewOffset(rawDt);
   // camera glide / follow
   if (glide) {
     const k = clamp((performance.now() - glide.t0) / glide.dur, 0, 1), e = k < .5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2;
