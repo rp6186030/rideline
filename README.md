@@ -39,8 +39,8 @@ The schedule, the map layer and a saved snapshot are all included in `data/`, so
 
 | Command | What it does |
 |---|---|
-| `node server.js` | Live feed (the default) |
-| `node server.js --replay` | Replays the saved snapshot from Oct 10 2026 at 18:00, with no internet needed |
+| `node server.js` or `npm start` | Live feed (the default) |
+| `node server.js --replay` or `npm run replay` | Replays the saved snapshot from Oct 10 2026 at 18:00, with no internet needed |
 | `node server.js --refresh-osm` | Downloads the OpenStreetMap layer again |
 | `PORT=9000 node server.js` | Uses a different port |
 | `http://localhost:8787/?lite` | Turns off shadows, for slower machines |

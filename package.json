@@ -1,0 +1,20 @@
+{
+  "name": "rideline",
+  "version": "1.0.0",
+  "description": "Live 3D map of Saskatoon Transit buses from GTFS Realtime feeds",
+  "private": true,
+  "license": "MIT",
+  "author": "Raj Patel",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/rp6186030/rideline.git"
+  },
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "replay": "node server.js --replay"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
