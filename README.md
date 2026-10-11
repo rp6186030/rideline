@@ -2,18 +2,40 @@
 
 A live 3D map of Saskatoon Transit buses, built from Saskatoon Transit's free GTFS Realtime feeds.
 
-## Run it
+## Run it locally
 
-You need Node.js 18 or newer. There is nothing to install.
+### 1. Install Node.js
+
+You need [Node.js](https://nodejs.org) 18 or newer. To check which version you have, run:
 
 ```bash
-cd ~/Projects/rideline
+node --version
+```
+
+There are no other dependencies, so you don't need `npm install`.
+
+### 2. Get the code
+
+Clone the repo with git:
+
+```bash
+git clone https://github.com/rp6186030/rideline.git
+cd rideline
+```
+
+Or, without git, click **Code → Download ZIP** on GitHub, unzip it, and open a terminal in the unzipped folder.
+
+### 3. Start the server
+
+```bash
 node server.js
 ```
 
-Then open http://localhost:8787 in your browser.
+Then open http://localhost:8787 in your browser. Press `Ctrl+C` in the terminal to stop the server.
 
-The first time you run it, the server takes about 30 seconds to download Saskatoon's main roads, parks and lakes from OpenStreetMap. It saves them to `data/osm.json`. Reload the page once that finishes.
+The schedule, the map layer and a saved snapshot are all included in `data/`, so it works straight away. You need an internet connection for the live bus feed. If you're offline, or few buses are running (late at night, for example), use `--replay` or the **Demo** button instead.
+
+### Options
 
 | Command | What it does |
 |---|---|
